@@ -7,6 +7,7 @@ from logging import *
 from html import *
 from pathlib import Path
 from string import Template
+import configparser
 
 
 config = {
@@ -35,10 +36,8 @@ def log_parser(log_file):
                          r'(\d+) (\d+) \"(.+)\" "(.+)" "(.+)" "(.+)" (.+) (?P<time>.+)')
     
     """Проверка лог файла на формат .gz и обработка ошибки на отсутствие файла в каталоге"""
-    if log_file.endswith(".gz"):
-        return opener_gz(log_file, pattern)
-    else:
-        return opener_default(log_file, pattern)
+    
+    return opener_gz(log_file, pattern) if log_file.endswith(".gz") else opener_default(log_file, pattern)
 
 def calculate(log_file):
     parsed_data = {}
@@ -101,6 +100,28 @@ def make_report(result, output_file_html):
 #     """Запись данных в JSON"""
 #     with open(output_file, 'w') as f:
 #         json.dump(parsed_data, f, indent=4)
+def get_latest_logfile(log_dir):
+    """Находит последний лог-файл в директории, используя дату из имени файла."""
+    latest_file = None
+    latest_date = 0
+
+    for filename in os.listdir(log_dir):
+        match = re.match(r"nginx-access-ui\.log-(\d{8})(\_SHORT|\.gz)?$", filename)  #Парсинг имени файла
+        if match:
+            try:
+                date = int(match.group(1))
+                if date > latest_date:
+                    latest_date = date
+                    latest_file = os.path.join(log_dir, filename)
+            except ValueError:
+                exception(f"Не удалось распарсить дату из имени файла: {filename}")
+
+    if latest_file is None:
+        error("Не найдено файлов логов, соответствующих шаблону")
+        return None
+
+    info(f"Найден последний лог-файл: {latest_file}")
+    return latest_file
 
 def main():
     
@@ -110,16 +131,19 @@ def main():
     info('Начало выполнения программы')
 
     log_dir = config["LOG_DIR"]
-    for filename in os.listdir(log_dir):
-        log_file = os.path.join(log_dir, filename)
-        parsed_data = calculate(log_file)
-        output_file = os.path.join(config["REPORT_DIR"], f"{filename}.json") 
-        output_file_html = os.path.join(config["REPORT_DIR"], f"{filename}.html") 
-         
-        # write_to_json(parsed_data, output_file)
+    latest_logfile = get_latest_logfile(log_dir)
+
+    if latest_logfile:
+        parsed_data = calculate(latest_logfile)
+        filename = os.path.basename(latest_logfile) #Извлекаем имя файла без пути
+        output_file = os.path.join(config["REPORT_DIR"], f"{filename}.json")
+        output_file_html = os.path.join(config["REPORT_DIR"], f"{filename}.html")
+
         html = data_for_html(parsed_data)
         make_report(html, output_file_html)
         info(f'Данные успешно записаны в {output_file} и {output_file_html}')
+    else:
+        info("Обработка лог-файлов пропущена, т.к. подходящих файлов не найдено.")
 
 if __name__ == "__main__":
     try:
@@ -128,43 +152,3 @@ if __name__ == "__main__":
         info("Выполнение прервано пользователем")
     except Exception as e:
         exception('Глобальная ошибка')
-
-
-
-
-
-
-
-
-
-
-
-"/api/v2/group/6641615/banners": {
-        "count": 3,
-        "time_sum": 2.504,
-        "times": [
-            0.934,
-            0.695,
-            0.875
-        ],
-        "count_perc": 0.00012897634058008398,
-        "time_perc": 0.00013883109249985875,
-        "time_avg": 0.8346666666666667,
-        "time_max": 0.934,
-        "time_med": 0.875
-    },
-
-
-
-
-
-my_dict = {"url": "/api/v2/group/6641615/banners",
-        "count": 3,
-        "count_pers": 0.00012897634058008398,
-        "time_avg": 0.8346666666666667,
-        "time_max": 0.934,
-        "time_med": 0.875,
-        "time_perc": 0.00013883109249985875,
-        "time_sum": 2.504 
-    },
-    content = template.safe_substitute(table_json=json.dumps(my_dict))

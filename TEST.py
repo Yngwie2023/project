@@ -15,6 +15,15 @@ config = {
         "LOG_DIR": "./log"
     }
 
+def init_config(config):
+    try:
+        with open('config.json', 'r') as config_file:
+            config_data = json.load(config_file)
+        return config_data
+    except: 
+        return config
+
+
 def opener_gz(log_file, pattern):
     with gzip.open(log_file, 'rt', encoding='utf-8') as f:
             for line in f:
@@ -35,10 +44,8 @@ def log_parser(log_file):
                          r'(\d+) (\d+) \"(.+)\" "(.+)" "(.+)" "(.+)" (.+) (?P<time>.+)')
     
     """Проверка лог файла на формат .gz и обработка ошибки на отсутствие файла в каталоге"""
-    if log_file.endswith(".gz"):
-        return opener_gz(log_file, pattern)
-    else:
-        return opener_default(log_file, pattern)
+    
+    return opener_gz(log_file, pattern) if log_file.endswith(".gz") else opener_default(log_file, pattern)
 
 def calculate(log_file):
     parsed_data = {}
@@ -102,6 +109,29 @@ def make_report(result, output_file_html):
 #     with open(output_file, 'w') as f:
 #         json.dump(parsed_data, f, indent=4)
 
+def get_latest_logfile(log_dir):
+    """Находит последний лог-файл в директории, используя дату из имени файла."""
+    latest_file = None
+    latest_date = 0
+
+    for filename in os.listdir(log_dir):
+        match = re.match(r"nginx-access-ui\.log-(\d{8})(\_SHORT|\.gz)?$", filename)  #Парсинг имени файла
+        if match:
+            try:
+                date = int(match.group(1))
+                if date > latest_date:
+                    latest_date = date
+                    latest_file = os.path.join(log_dir, filename)
+            except ValueError:
+                exception(f"Не удалось распарсить дату из имени файла: {filename}")
+
+    if latest_file is None:
+        error("Не найдено файлов логов, соответствующих шаблону")
+        return None
+
+    info(f"Найден последний лог-файл: {latest_file}")
+    return latest_file
+
 def main():
     
     """Настройка логирования с выводом в консоль"""
@@ -109,17 +139,22 @@ def main():
 
     info('Начало выполнения программы')
 
-    log_dir = config["LOG_DIR"]
-    for filename in os.listdir(log_dir):
-        log_file = os.path.join(log_dir, filename)
-        parsed_data = calculate(log_file)
-        output_file = os.path.join(config["REPORT_DIR"], f"{filename}.json") 
-        output_file_html = os.path.join(config["REPORT_DIR"], f"{filename}.html") 
-         
-        # write_to_json(parsed_data, output_file)
+    # log_dir = config["LOG_DIR"]
+    log_dir = init_config(config)["LOG_DIR"]
+    latest_logfile = get_latest_logfile(log_dir)
+
+    if latest_logfile:
+        parsed_data = calculate(latest_logfile)
+        filename = os.path.basename(latest_logfile) #Извлекаем имя файла без пути
+        output_file = os.path.join(config["REPORT_DIR"], f"{filename}.json")
+        output_file_html = os.path.join(config["REPORT_DIR"], f"{filename}.html")
+
         html = data_for_html(parsed_data)
         make_report(html, output_file_html)
+        # write_to_json(html, output_file)
         info(f'Данные успешно записаны в {output_file} и {output_file_html}')
+    else:
+        info("Обработка лог-файлов пропущена, т.к. подходящих файлов не найдено.")
 
 if __name__ == "__main__":
     try:
